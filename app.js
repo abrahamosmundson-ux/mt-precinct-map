@@ -280,6 +280,8 @@ function renderSide(){
     side.querySelectorAll('[data-ap]').forEach(b => b.onclick = () => { b.disabled = true; approve(b.dataset.ap, true); });
     side.querySelectorAll('[data-dn]').forEach(b => b.onclick = () => { b.disabled = true; approve(b.dataset.dn, false); });
     side.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => removeEditor(b.dataset.rm));
+    $('#impCheck')?.addEventListener('click', checkImport);
+    $('#impGo')?.addEventListener('click', runImport);
     side.querySelectorAll('[data-k]').forEach(b => b.onclick = () => { select(b.dataset.k); fitTo([byKey.get(b.dataset.k)], 14); });
     return;
   }
@@ -434,7 +436,65 @@ function accessHtml(){
   if (!isAdmin) return '';
   const reqs = requests.length ? `<ul class="int">${requests.map(r => `<li><div><b>${esc(r.name)}</b> · ${esc(r.role)}<br><small>${esc(r.county)} County · ${esc(r.phone)} · ${esc(r.email)}</small></div><div class="acts"><button class="btn" data-ap="${esc(r.user_id)}">Approve</button><button class="btn ghost" data-dn="${esc(r.user_id)}">Deny</button></div></li>`).join('')}</ul>` : '<p class="meta">No requests waiting.</p>';
   const eds = `<details><summary class="meta" style="cursor:pointer;margin-top:10px">Editors (${editors.length})</summary><ul class="int">${editors.map(e => `<li><div><b>${esc(e.name || e.email)}</b>${e.admin ? ' · owner' : ''}<br><small>${esc(e.email)}${e.county ? ' · ' + esc(e.county) : ''}</small></div><div class="acts">${e.admin ? '' : `<button class="btn ghost" data-rm="${esc(e.email)}">Remove</button>`}</div></li>`).join('')}</ul></details>`;
-  return `<div class="admin"><h3>Access requests${requests.length ? ' (' + requests.length + ')' : ''}</h3>${reqs}${eds}</div>`;
+  const imp = `<details id="impBox"><summary class="meta" style="cursor:pointer;margin-top:10px">Bulk import names</summary><form onsubmit="return false">
+    <p class="meta" style="font-size:14px">Paste one precinct per line: <b>County, Precinct, Committeeman, Committeewoman</b>. Copying straight from a spreadsheet works. Seats you've already marked are left alone; new names go in as Filled, unknown.</p>
+    <textarea id="impText" rows="6" placeholder="Chouteau, Fort Benton 1, John Smith, Jane Doe"></textarea>
+    <div class="row" style="display:flex;gap:8px;margin-top:8px"><button class="btn ghost" id="impCheck" type="button">Check list</button><button class="btn" id="impGo" type="button" disabled>Import</button></div>
+    <p class="msg" id="impMsg"></p></form></details>`;
+  return `<div class="admin"><h3>Access requests${requests.length ? ' (' + requests.length + ')' : ''}</h3>${reqs}${eds}${imp}</div>`;
+}
+
+/* ---------- bulk import ---------- */
+const normP = s => String(s||'').toLowerCase().replace(/\b(precinct|prec|pct|p)\b\.?/g,' ').replace(/[^a-z0-9]+/g,' ').replace(/\b0+(\d)/g,'$1').trim();
+function splitRow(line){ if (line.includes('\t')) return line.split('\t').map(x => x.trim());
+  const out = []; let cur = '', q = false; for (const ch of line){ if (ch === '"') q = !q; else if (ch === ',' && !q){ out.push(cur.trim()); cur = ''; } else cur += ch; } out.push(cur.trim()); return out; }
+const pKeys = x => { const n = normP(x), c = n.replace(/ /g,''); const k = new Set(n.split(' ').filter(t => /^\d/.test(t)));
+  const t = c.match(/(\d+[a-z]?\d*)$/); if (t) k.add(t[1]); const h = n.match(/^(\d+[a-z]?\d*)/); if (h) k.add(h[1]); return k; };
+function findPrecinct(county, label){
+  const c = county.toLowerCase().replace(/\s*county$/,'').trim();
+  const list = feats.filter(f => f.p.COUNTY.toLowerCase() === c);
+  if (!list.length) return null;
+  const n = normP(label); if (!n) return null;
+  const nc = n.replace(/ /g,'');
+  let hit = list.filter(f => [f.p.NAME, f.p.PN].some(x => normP(x) === n || normP(x).replace(/ /g,'') === nc));
+  if (hit.length === 1) return hit[0];
+  const lk = pKeys(label);
+  if (lk.size){ hit = list.filter(f => [f.p.NAME, f.p.PN].some(x => { const fk = pKeys(x); return [...lk].some(k => fk.has(k)); }));
+    if (hit.length === 1) return hit[0];
+    const words = n.split(' ').filter(w => !/^\d/.test(w));
+    if (hit.length > 1 && words.length){ const h2 = hit.filter(f => words.every(w => normP(f.p.NAME).includes(w))); if (h2.length === 1) return h2[0]; } }
+  hit = list.filter(f => normP(f.p.NAME).includes(n));
+  return hit.length === 1 ? hit[0] : null;
+}
+let impPlan = [];
+function checkImport(){
+  const lines = $('#impText').value.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  const bad = [], plan = new Map(); let skipped = 0;
+  lines.forEach(line => {
+    const c = splitRow(line); if (c.length < 3 || /^county$/i.test(c[0])) return;
+    const f = findPrecinct(c[0], c[1]); if (!f){ bad.push(line); return; }
+    const row = plan.get(f.k) || {f, m:null, w:null};
+    if (c[2]) { if (seat(f.k,'m') === 'unk') row.m = c[2]; else skipped++; }
+    if (c[3]) { if (seat(f.k,'w') === 'unk') row.w = c[3]; else skipped++; }
+    if (row.m || row.w) plan.set(f.k, row);
+  });
+  impPlan = [...plan.values()];
+  const seatsN = impPlan.reduce((a,r) => a + (r.m?1:0) + (r.w?1:0), 0);
+  $('#impMsg').innerHTML = `Ready: ${seatsN} seats in ${impPlan.length} precincts.${skipped ? ` ${skipped} already marked, left alone.` : ''}${bad.length ? `<br>Couldn't match ${bad.length} line${bad.length>1?'s':''}. Fix the precinct name and check again:<br>` + bad.slice(0,15).map(l => '• ' + esc(l)).join('<br>') + (bad.length > 15 ? '<br>…' : '') : ''}`;
+  $('#impGo').disabled = !impPlan.length;
+}
+async function runImport(){
+  const btn = $('#impGo'); btn.disabled = true; const now = new Date().toISOString(); let done = 0;
+  const rows = impPlan.map(({f,m,w}) => { const r = recs[f.k] || {};
+    return {precinct:f.k, m_status: m ? 'filled' : (r.m?.s||'unk'), m_name: m || r.m?.n || '', w_status: w ? 'filled' : (r.w?.s||'unk'), w_name: w || r.w?.n || '', updated_at: now, updated_by: session?.user?.id || null}; });
+  for (let i = 0; i < rows.length; i += 50){
+    const {error} = await sb.from('seats').upsert(rows.slice(i, i+50));
+    if (error){ $('#impMsg').textContent = `Stopped after ${done} precincts: ${error.message}`; return; }
+    done += Math.min(50, rows.length - i); $('#impMsg').textContent = `Importing… ${done} of ${rows.length}`;
+  }
+  rows.forEach(r => recs[r.precinct] = fromRow(r));
+  impPlan = []; $('#impText').value = ''; renderKpis(); renderTable(); paint();
+  $('#impMsg').textContent = `Imported ${done} precincts.`;
 }
 
 /* ---------- hero outline ---------- */
