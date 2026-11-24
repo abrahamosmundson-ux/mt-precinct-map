@@ -96,13 +96,26 @@
 <footer><div class="in"><span>Precinct boundaries and address search: Montana State Library. County, House and Senate lines are drawn from the precincts. Base map © OpenStreetMap contributors.</span><span>Seat information is maintained by county and chapter leaders.</span></div></footer>
 
 <dialog id="login">
+  <div class="tabs" role="tablist"><button type="button" data-mode="in" aria-selected="true">Sign in</button><button type="button" data-mode="req" aria-selected="false">Request access</button></div>
   <form id="loginForm">
     <h2>Chair login</h2>
     <p class="meta">For county chairs and chapter leaders who keep the seat map up to date.</p>
     <label class="field">Email<input type="email" name="email" required autocomplete="username"></label>
     <label class="field">Password<input type="password" name="password" required autocomplete="current-password"></label>
     <p class="msg" id="loginMsg"></p>
-    <div class="row"><button class="btn" type="submit">Sign in</button><button class="btn ghost" type="button" id="loginClose">Cancel</button></div>
+    <div class="row"><button class="btn" type="submit">Sign in</button><button class="btn ghost" type="button" data-close>Cancel</button></div>
+  </form>
+  <form id="reqForm" hidden>
+    <h2>Request editor access</h2>
+    <p class="meta">Create an account. The map owner approves each editor before they can change seats.</p>
+    <label class="field">Full name<input type="text" name="name" required maxlength="80" autocomplete="name"></label>
+    <label class="field">County<select name="county" id="reqCounty" required style="width:100%"><option value="">Choose your county</option></select></label>
+    <label class="field">Your role<select name="role" required style="width:100%"><option value="">Choose one</option><option>County party chair</option><option>County party officer</option><option>YR chapter leader</option><option>Precinct committee member</option><option>Other</option></select></label>
+    <label class="field">Phone<input type="tel" name="phone" required maxlength="30" autocomplete="tel"></label>
+    <label class="field">Email<input type="email" name="email" required autocomplete="email"></label>
+    <label class="field">Password (8+ characters)<input type="password" name="password" required minlength="8" autocomplete="new-password"></label>
+    <p class="msg" id="reqMsg"></p>
+    <div class="row"><button class="btn" type="submit">Request access</button><button class="btn ghost" type="button" data-close>Cancel</button></div>
   </form>
 </dialog>
 

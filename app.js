@@ -15,7 +15,7 @@ const store = {get(k,d){try{return localStorage.getItem(k) ?? d}catch{return d}}
 /* ---------- state ---------- */
 let feats = [], byKey = new Map(), recs = {}, sel = null, filter = null, lines = null;
 let lineMode = store.get('mtpm-lines','county'), sortKey = 'open', sortDir = -1;
-let sb = null, session = null, isEditor = false, signups = [];
+let sb = null, session = null, isEditor = false, isAdmin = false, signups = [], myReq = null, requests = [], editors = [];
 const cfg = window.MTPM_CONFIG || {};
 if (cfg.supabaseUrl && cfg.supabaseAnonKey && window.supabase) sb = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey);
 
@@ -253,13 +253,16 @@ function renderSide(){
     const list = filter ? feats.filter(inFilter) : feats, t = tally(list);
     const open = filter ? list.filter(f => status(f.k) === 'open').slice(0,8) : [];
     const recent = isEditor ? signups.slice(0,8) : [];
-    side.innerHTML = `<h2>${esc(filterName(filter))}</h2><p class="meta">${t.n} precincts · ${t.n*2} committee seats</p>${feats.length ? bars(t) : ''}
+    side.innerHTML = accessHtml() + `<h2>${esc(filterName(filter))}</h2><p class="meta">${t.n} precincts · ${t.n*2} committee seats</p>${feats.length ? bars(t) : ''}
       ${filter ? '<div class="tags" style="margin-top:16px"><button class="btn ghost" id="clr">Show all of Montana</button></div>' : ''}
       ${open.length ? `<h3>Open seats here</h3><div class="tags">${open.map(f => `<button class="tag" data-k="${esc(f.k)}">${esc(f.name)}</button>`).join('')}</div>` : ''}
       ${recent.length ? `<h3>Newest sign-ups</h3><ul class="int">${recent.map(s => { const f = byKey.get(s.precinct); return `<li><b>${esc(s.name)}</b> · ${esc(s.contact)}<br><small>${esc(f ? f.name + ', ' + f.p.COUNTY : s.precinct)} · ${fmtDate(s.created_at)}</small></li>`; }).join('')}</ul>` : ''}
       <h3>How to use the map</h3><ol class="steps"><li>Type your address or tap Near me to find your precinct.</li><li>Gold means a seat is open. Tap "I want to serve here" and leaders will follow up.</li><li>County chairs: log in to mark seats as open, filled, or filled by a YR.</li></ol>
       ${!sb ? '<p class="note">Seat data isn\'t connected yet, so every seat shows as not checked.</p>' : ''}`;
     $('#clr')?.addEventListener('click', () => setFilter(null));
+    side.querySelectorAll('[data-ap]').forEach(b => b.onclick = () => { b.disabled = true; approve(b.dataset.ap, true); });
+    side.querySelectorAll('[data-dn]').forEach(b => b.onclick = () => { b.disabled = true; approve(b.dataset.dn, false); });
+    side.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => removeEditor(b.dataset.rm));
     side.querySelectorAll('[data-k]').forEach(b => b.onclick = () => { select(b.dataset.k); fitTo([byKey.get(b.dataset.k)], 14); });
     return;
   }
@@ -340,21 +343,73 @@ const dlg = $('#login');
 $('#loginBtn').onclick = async () => {
   if (session){ await sb.auth.signOut(); return; }
   if (!sb){ alert('Seat data is not connected yet.'); return; }
-  $('#loginMsg').textContent = ''; dlg.showModal();
+  $('#loginMsg').textContent = ''; $('#reqMsg').textContent = ''; setMode('in');
+  if ($('#reqCounty').options.length < 2) $('#reqCounty').innerHTML = '<option value="">Choose your county</option>' + [...new Set(feats.map(f => f.p.COUNTY))].sort().map(c => `<option>${esc(c)}</option>`).join('');
+  dlg.showModal();
 };
-$('#loginClose').onclick = () => dlg.close();
+$$('[data-close]').forEach(b => b.onclick = () => dlg.close());
+function setMode(m){ $$('.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.mode === m)); $('#loginForm').hidden = m !== 'in'; $('#reqForm').hidden = m !== 'req'; }
+$$('.tabs button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
+$('#reqForm').onsubmit = async e => {
+  e.preventDefault(); const fd = new FormData(e.target), msg = $('#reqMsg'), btn = e.target.querySelector('[type=submit]');
+  const meta = {req_name:String(fd.get('name')).trim(), req_county:fd.get('county'), req_role:fd.get('role'), req_phone:String(fd.get('phone')).trim()};
+  btn.disabled = true; msg.textContent = 'Creating your account…';
+  const {data, error} = await sb.auth.signUp({email:String(fd.get('email')).trim(), password:fd.get('password'), options:{data:meta, emailRedirectTo: location.origin + location.pathname}});
+  btn.disabled = false;
+  if (error){ msg.textContent = /registered|exists/i.test(error.message) ? 'That email already has an account. Use Sign in.' : 'Could not create the account: ' + error.message; return; }
+  if (data.session){ dlg.close(); e.target.reset(); return; }
+  msg.textContent = 'Almost done: check your email and tap the confirmation link. Then come back and sign in, and your request goes to the map owner.';
+};
 $('#loginForm').onsubmit = async e => {
   e.preventDefault(); const fd = new FormData(e.target); $('#loginMsg').textContent = 'Signing in…';
   const {error} = await sb.auth.signInWithPassword({email:fd.get('email'), password:fd.get('password')});
-  if (error){ $('#loginMsg').textContent = 'That email and password didn\'t work.'; return; }
+  if (error){ $('#loginMsg').textContent = /confirm/i.test(error.message) ? 'Confirm your email first: tap the link Supabase sent you.' : 'That email and password didn\'t work.'; return; }
   dlg.close(); e.target.reset();
 };
 async function onAuth(s){
-  session = s; isEditor = false;
-  if (s){ const {data} = await sb.rpc('is_editor'); isEditor = !!data; }
+  session = s; isEditor = false; isAdmin = false; myReq = null;
+  if (s){
+    const [e1, a1] = await Promise.all([sb.rpc('is_editor'), sb.rpc('is_admin')]);
+    isEditor = !!e1.data; isAdmin = !!a1.data;
+    if (!isEditor){
+      const {data} = await sb.from('editor_requests').select('*').eq('user_id', s.user.id).maybeSingle();
+      myReq = data;
+      const m = s.user.user_metadata || {};
+      if (!myReq && m.req_name){
+        const row = {name:m.req_name, county:m.req_county||'', role:m.req_role||'', phone:m.req_phone||''};
+        const {error} = await sb.from('editor_requests').insert(row);
+        if (!error) myReq = {...row, status:'pending'};
+      }
+    }
+  }
   $('#loginBtn').textContent = s ? 'Sign out' : 'Chair login';
-  if (s && !isEditor) $('#locMsg').textContent = 'You are signed in, but your email is not on the editors list yet. Ask the map owner to add you.';
-  await loadSignups(); renderSide();
+  await Promise.all([loadSignups(), loadAdmin()]); renderSide();
+}
+async function loadAdmin(){
+  if (!isAdmin){ requests = []; editors = []; return; }
+  const [r, e] = await Promise.all([sb.from('editor_requests').select('*').eq('status','pending').order('created_at'), sb.from('editors').select('*').order('email')]);
+  requests = r.data || []; editors = e.data || [];
+}
+async function approve(id, ok){
+  const r = requests.find(x => x.user_id === id); if (!r) return;
+  if (ok){ const {error} = await sb.from('editors').insert({email:r.email.toLowerCase(), name:r.name, county:r.county}); if (error && !/duplicate/i.test(error.message)){ alert('Could not approve: ' + error.message); return; } }
+  await sb.from('editor_requests').update({status: ok ? 'approved' : 'denied'}).eq('user_id', id);
+  await loadAdmin(); renderSide();
+}
+async function removeEditor(email){
+  if (email.toLowerCase() === (session?.user?.email||'').toLowerCase()) return;
+  if (!confirm('Remove edit access for ' + email + '?')) return;
+  await sb.from('editors').delete().eq('email', email); await loadAdmin(); renderSide();
+}
+function accessHtml(){
+  if (session && !isEditor){
+    const st = myReq?.status;
+    return `<div class="pending"><h3>${st === 'denied' ? 'Access request not approved' : myReq ? 'Your request is waiting for approval' : 'Request editor access'}</h3><p class="meta">${st === 'denied' ? 'Contact the map owner if you think this is a mistake.' : myReq ? 'You can view everything now. Once the map owner approves you, you can mark seats.' : 'Your account isn\'t on the editors list. Sign out and use Request access, or ask the map owner to add you.'}</p></div>`;
+  }
+  if (!isAdmin) return '';
+  const reqs = requests.length ? `<ul class="int">${requests.map(r => `<li><div><b>${esc(r.name)}</b> · ${esc(r.role)}<br><small>${esc(r.county)} County · ${esc(r.phone)} · ${esc(r.email)}</small></div><div class="acts"><button class="btn" data-ap="${esc(r.user_id)}">Approve</button><button class="btn ghost" data-dn="${esc(r.user_id)}">Deny</button></div></li>`).join('')}</ul>` : '<p class="meta">No requests waiting.</p>';
+  const eds = `<details><summary class="meta" style="cursor:pointer;margin-top:10px">Editors (${editors.length})</summary><ul class="int">${editors.map(e => `<li><div><b>${esc(e.name || e.email)}</b>${e.admin ? ' · owner' : ''}<br><small>${esc(e.email)}${e.county ? ' · ' + esc(e.county) : ''}</small></div><div class="acts">${e.admin ? '' : `<button class="btn ghost" data-rm="${esc(e.email)}">Remove</button>`}</div></li>`).join('')}</ul></details>`;
+  return `<div class="admin"><h3>Access requests${requests.length ? ' (' + requests.length + ')' : ''}</h3>${reqs}${eds}</div>`;
 }
 
 /* ---------- hero outline ---------- */
