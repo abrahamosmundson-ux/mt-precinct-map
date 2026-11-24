@@ -71,6 +71,8 @@ select{width:auto;flex:0 1 190px}
 .mapbox{position:relative;height:clamp(440px,72vh,800px);border-radius:14px;overflow:hidden;border:1px solid var(--line);background:var(--panel)}
 #map{position:absolute;inset:0;background:var(--panel);font:inherit}
 .leaflet-container{font-family:Barlow,system-ui,sans-serif}
+.basemap{filter:saturate(.35) contrast(.95) brightness(1.04)}
+@media(prefers-color-scheme:dark){.basemap{filter:invert(1) hue-rotate(180deg) saturate(.3) brightness(.85) contrast(.9)}}
 .leaflet-control-zoom a{width:40px!important;height:40px!important;line-height:40px!important;font-size:20px!important;color:var(--ink)!important;background:var(--card)!important}
 .leaflet-bar{border:1px solid var(--line)!important;box-shadow:var(--shadow)!important;border-radius:10px!important;overflow:hidden}
 .leaflet-control-attribution{font-size:11px;background:color-mix(in srgb,var(--card) 80%,transparent)!important;color:var(--mute)!important}

@@ -30,8 +30,8 @@ const filterName = f => !f ? 'Statewide' : f.t==='county' ? f.v+' County' : (f.t
 /* ---------- map ---------- */
 const map = L.map('map', {zoomControl:false, minZoom:5, maxZoom:18, zoomSnap:.25, zoomDelta:.5, wheelPxPerZoomLevel:90, maxBounds:[[42.5,-120],[51,-100]]});
 L.control.zoom({position:'topright'}).addTo(map);
-L.tileLayer(`https://{s}.basemaps.cartocdn.com/${dark?'dark_all':'light_all'}/{z}/{x}/{y}{r}.png`, {
-  subdomains:'abcd', maxZoom:19, attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a> · Montana State Library'
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom:19, className:'basemap', attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors · Montana State Library'
 }).addTo(map);
 map.createPane('lines').style.zIndex = 450; map.getPane('lines').style.pointerEvents = 'none';
 map.createPane('labels').style.zIndex = 460; map.getPane('labels').style.pointerEvents = 'none';
