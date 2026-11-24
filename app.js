@@ -3,9 +3,10 @@
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const ST = {yr:'YR', friendly:'Friendly', neutral:'Neutral', hostile:'Hostile', filled:'Filled', open:'Open', unk:'Not checked'};
+const EDLABEL = {...ST, filled:'Filled, unknown'};
 const COLOR = {yr:'#c8102e', friendly:'#2f9e5b', neutral:'#7b8898', hostile:'#7c3aed', filled:'#6f7d8e', open:'#f2a900', unk:'#8a96a3'};
 const RANK = ['yr','open','hostile','friendly','neutral','filled'];
-const kinds = () => isEditor ? ['yr','friendly','neutral','hostile','open','unk'] : ['yr','open','filled','unk'];
+const kinds = () => isEditor ? ['yr','friendly','neutral','hostile','filled','open','unk'] : ['yr','open','filled','unk'];
 const SEATS = [['m','Committeeman'],['w','Committeewoman']];
 const GEO = 'https://gisservice.mt.gov/ArcGIS/rest/services/msdi_address_locator_geocode_v1/GeocodeServer';
 const MT = {x0:-116.1, x1:-104.0, y0:44.3, y1:49.05};
@@ -230,7 +231,7 @@ function renderKpis(){
   $('#prog').innerHTML = `<span>${f(tot-t.unk)} of ${f(t.n*2)} seats checked · ${f(withYR)} precincts have a YR</span><div>${RANK.map(x => `<i style="width:${t[x]/tot*100}%;background:${COLOR[x]}"></i>`).join('')}</div>`;
   $('#legend').innerHTML = kinds().map(x => `<span><i style="background:${x==='unk'?'transparent':COLOR[x]}${x==='unk'?';border:1.5px dashed var(--mute)':''}"></i>${x==='yr'?'YR in a seat':ST[x]}</span>`).join('');
   const sh = $('#show'), cur = sh.value;
-  sh.innerHTML = '<option value="">All precincts</option>' + (isEditor ? [['yr','Has a YR'],['open','Has an open seat'],['friendly','Has a friendly'],['hostile','Has a hostile'],['neutral','Has a neutral'],['unk','Not checked']] : [['yr','Has a YR'],['open','Has an open seat'],['filled','Filled'],['unk','Not checked']]).map(([v,l]) => `<option value="${v}">${l}</option>`).join('');
+  sh.innerHTML = '<option value="">All precincts</option>' + (isEditor ? [['yr','Has a YR'],['open','Has an open seat'],['friendly','Has a friendly'],['hostile','Has a hostile'],['neutral','Has a neutral'],['filled','Filled, unknown'],['unk','Not checked']] : [['yr','Has a YR'],['open','Has an open seat'],['filled','Filled'],['unk','Not checked']]).map(([v,l]) => `<option value="${v}">${l}</option>`).join('');
   sh.value = [...sh.options].some(o => o.value === cur) ? cur : '';
 }
 const bars = t => { const tot = t.n*2 || 1;
@@ -290,7 +291,7 @@ function renderSide(){
     ${f.poll ? `<p class="meta">Polling place: ${esc(f.poll)}</p>` : ''}`;
   let body;
   if (isEditor){
-    body = `<form id="pf">${SEATS.map(([s,l]) => `<div class="seat"><h3>${l}</h3><div class="opts" role="radiogroup" aria-label="${l}">${Object.entries(ST).map(([v,t]) => `<label><input type="radio" name="${s}" value="${v}"${seat(k,s)===v ? ' checked' : ''}><span><span class="sw" style="background:${COLOR[v]}"></span>${t}</span></label>`).join('')}</div>
+    body = `<form id="pf">${SEATS.map(([s,l]) => `<div class="seat"><h3>${l}</h3><div class="opts" role="radiogroup" aria-label="${l}">${kinds().map(v => `<label><input type="radio" name="${s}" value="${v}"${seat(k,s)===v ? ' checked' : ''}><span><span class="sw" style="background:${COLOR[v]}"></span>${EDLABEL[v]}</span></label>`).join('')}</div>
       <label class="field">Who holds it<input type="text" name="${s}n" value="${esc(r[s]?.n || '')}" placeholder="Name, if filled" autocomplete="off" maxlength="120"></label></div>`).join('')}
       <label class="field">YR prospect (chairs only)<input type="text" name="pr" placeholder="Loading…" autocomplete="off" maxlength="200"></label>
       <label class="field">Notes (chairs only)<textarea name="no" rows="3" maxlength="2000" placeholder="Loading…"></textarea></label>
