@@ -2,8 +2,10 @@
 'use strict';
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const ST = {unk:'Not checked', open:'Open', held:'Filled', yr:'Filled by a YR'};
-const COLOR = {yr:'#c8102e', open:'#f2a900', held:'#6f7d8e', unk:'#8a96a3'};
+const ST = {yr:'YR', friendly:'Friendly', neutral:'Neutral', hostile:'Hostile', open:'Open', unk:'Not checked'};
+const COLOR = {yr:'#c8102e', friendly:'#2f9e5b', neutral:'#7b8898', hostile:'#7c3aed', open:'#f2a900', unk:'#8a96a3'};
+const RANK = ['yr','open','hostile','friendly','neutral'];
+const KINDS = Object.keys(ST);
 const SEATS = [['m','Committeeman'],['w','Committeewoman']];
 const GEO = 'https://gisservice.mt.gov/ArcGIS/rest/services/msdi_address_locator_geocode_v1/GeocodeServer';
 const MT = {x0:-116.1, x1:-104.0, y0:44.3, y1:49.05};
@@ -23,7 +25,8 @@ const num = v => (String(v ?? '').match(/\d+/) || [''])[0].replace(/^0+(?=\d)/, 
 const keyOf = p => 'p-' + String(p.ID || ((p.COUNTY||'') + '-' + (p.NAME||''))).replace(/[^A-Za-z0-9_\-~:@+]/g,'-').replace(/-+/g,'-').slice(0,120);
 const pretty = s => String(s||'').toLowerCase().replace(/\b[a-z]/g, c => c.toUpperCase()).replace(/\b(Ii|Iii|Iv|Vi|Vii)\b/g, m => m.toUpperCase());
 const seat = (k,s) => recs[k]?.[s]?.s || 'unk';
-const status = k => { const a = seat(k,'m'), b = seat(k,'w'); return a==='yr'||b==='yr' ? 'yr' : a==='open'||b==='open' ? 'open' : a==='held'||b==='held' ? 'held' : 'unk'; };
+const status = k => { const a = seat(k,'m'), b = seat(k,'w'); return RANK.find(x => a===x || b===x) || 'unk'; };
+const shows = k => { const v = $('#show').value; return !v || (v==='unk' ? status(k)==='unk' : seat(k,'m')===v || seat(k,'w')===v); };
 const inFilter = f => !filter || (filter.t==='county' ? f.p.COUNTY===filter.v : filter.t==='hd' ? f.hd===filter.v : f.sd===filter.v);
 const filterName = f => !f ? 'Statewide' : f.t==='county' ? f.v+' County' : (f.t==='hd' ? 'House District ' : 'Senate District ') + f.v;
 
@@ -39,7 +42,7 @@ map.fitBounds([[MT.y0,MT.x0],[MT.y1,MT.x1]]);
 let precinctLayer = null, lineLayer = L.layerGroup().addTo(map), labLayer = L.layerGroup().addTo(map), pLabLayer = L.layerGroup().addTo(map), pinMarker = null;
 
 function style(f){
-  const s = status(f.k), dim = !inFilter(f) || ($('#openOnly').checked && s !== 'open'), on = f.k === sel;
+  const s = status(f.k), dim = !inFilter(f) || !shows(f.k), on = f.k === sel;
   return {
     color: on ? (dark?'#ffffff':'#121c27') : (dark?'#9aa8b8':'#3c4855'),
     weight: on ? 3.5 : .7, opacity: dim ? .25 : (on ? 1 : .55),
@@ -93,7 +96,7 @@ function useData(fc){
       const f = ft._f; f.layer = layer; ft._f = f;
       const c = layer.getBounds().getCenter(); f.ll = c; f.area = (f.bx[2]-f.bx[0])*(f.bx[3]-f.bx[1])*.6/stateA;
       layer.on('click', () => { select(f.k); if (narrow()) showPeek(); });
-      if (matchMedia('(hover:hover)').matches) layer.bindTooltip(() => `<b>${esc(f.name)}</b><br>${esc(f.p.COUNTY)} · ${ST[status(f.k)]}`, {sticky:true, className:'tt', direction:'top', offset:[0,-8]});
+      if (matchMedia('(hover:hover)').matches) layer.bindTooltip(() => `<b>${esc(f.name)}</b><br>${esc(f.p.COUNTY)} · ${isEditor ? ST[status(f.k)] : status(f.k)==='yr' ? 'YR serving' : 'No YR yet'}`, {sticky:true, className:'tt', direction:'top', offset:[0,-8]});
     }
   }).addTo(map);
   const cs = [...new Set(feats.map(f => f.p.COUNTY).filter(Boolean))].sort();
@@ -108,7 +111,7 @@ function setFilter(f, keepView){
   paint(); renderSide(); if (!keepView) f ? fitTo(feats.filter(inFilter), 12) : fitState();
 }
 $('#county').onchange = e => { select(null, true); setFilter(e.target.value ? {t:'county', v:e.target.value} : null); };
-$('#openOnly').onchange = paint;
+$('#show').onchange = paint;
 
 /* ---------- point in polygon ---------- */
 function ringHas(x,y,r){ let c=false; for (let i=0,j=r.length-1; i<r.length; j=i++){ const [xi,yi]=r[i],[xj,yj]=r[j]; if ((yi>y)!==(yj>y) && x < (xj-xi)*(y-yi)/(yj-yi)+xi) c=!c; } return c; }
@@ -214,20 +217,36 @@ $$('[data-gps]').forEach(b => b.onclick = () => { $('#mapsec').scrollIntoView({b
 $$('[data-focus-q]').forEach(b => b.onclick = () => { $('#mapsec').scrollIntoView({behavior:reduce?'auto':'smooth'}); setTimeout(() => q.focus(), reduce ? 0 : 450); });
 
 /* ---------- counts ---------- */
-function tally(list){ const t = {n:list.length, yr:0, open:0, held:0, unk:0}; list.forEach(f => SEATS.forEach(([s]) => t[seat(f.k,s)]++)); return t; }
+function tally(list){ const t = {n:list.length, yr:0, friendly:0, neutral:0, hostile:0, open:0, unk:0}; list.forEach(f => SEATS.forEach(([s]) => t[seat(f.k,s)]++)); return t; }
 function renderKpis(){
-  const t = tally(feats), tot = t.n*2 || 1, f = v => feats.length ? v.toLocaleString() : '—';
-  $('#kpis').innerHTML = [[t.n,'precincts',''],[t.yr,'held by YRs',COLOR.yr],[t.open,'open seats',COLOR.open],[t.unk,'not checked','rgb(255 255 255/.5)']]
-    .map(([v,l,c]) => `<div class="kpi"><b>${f(v)}</b><span>${c?`<i style="background:${c}"></i>`:''}${l}</span></div>`).join('');
-  $('#prog').innerHTML = `<span>${f(tot-t.unk)} of ${f(t.n*2)} seats checked</span><div>${['yr','open','held'].map(k => `<i style="width:${t[k]/tot*100}%;background:${COLOR[k]}"></i>`).join('')}</div>`;
+  const t = tally(feats), f = v => feats.length ? v.toLocaleString() : '—';
+  const withYR = feats.filter(x => status(x.k)==='yr').length, cWith = new Set(feats.filter(x => status(x.k)==='yr').map(x => x.p.COUNTY)).size;
+  const k = isEditor
+    ? [[t.yr,'YR seats','yr'],[t.friendly,'friendly','friendly'],[t.open,'open seats','open'],[t.hostile,'hostile','hostile'],[t.neutral,'neutral','neutral'],[t.unk,'not checked','']]
+    : [[t.n,'precincts',''],[t.yr,'YRs serving','yr'],[withYR,'precincts with a YR','yr'],[cWith,'counties with a YR','']];
+  $('#kpis').className = 'kpis' + (isEditor ? ' six' : '');
+  $('#kpis').innerHTML = k.map(([v,l,c]) => `<div class="kpi"><b>${f(v)}</b><span>${c?`<i style="background:${COLOR[c]}"></i>`:''}${l}</span></div>`).join('');
+  const tot = t.n*2 || 1;
+  $('#prog').innerHTML = isEditor
+    ? `<span>${f(tot-t.unk)} of ${f(t.n*2)} seats checked</span><div>${RANK.map(x => `<i style="width:${t[x]/tot*100}%;background:${COLOR[x]}"></i>`).join('')}</div>`
+    : `<span>${f(withYR)} of ${f(t.n)} precincts have a YR</span><div><i style="width:${withYR/(t.n||1)*100}%;background:#fff"></i></div>`;
+  $('#legend').innerHTML = (isEditor ? KINDS : ['yr']).map(x => `<span><i style="background:${x==='unk'?'transparent':COLOR[x]}${x==='unk'?';border:1.5px dashed var(--mute)':''}"></i>${x==='yr'?'YR in a seat':ST[x]}</span>`).join('') + (isEditor ? '' : '<span><i style="background:transparent;border:1.5px dashed var(--mute)"></i>No YR yet</span>');
+  const sh = $('#show'), cur = sh.value;
+  sh.innerHTML = '<option value="">All precincts</option>' + (isEditor ? [['yr','Has a YR'],['open','Has an open seat'],['friendly','Has a friendly'],['hostile','Has a hostile'],['neutral','Has a neutral'],['unk','Not checked']] : [['yr','Precincts with a YR']]).map(([v,l]) => `<option value="${v}">${l}</option>`).join('');
+  sh.value = [...sh.options].some(o => o.value === cur) ? cur : '';
 }
-const bars = t => { const tot = t.n*2 || 1; return '<div class="bars">' + [['yr','YR in seat'],['open','Open'],['held','Filled'],['unk','Not checked']].map(([k,l]) => `<div class="brow"><span>${l}</span><div><i style="width:${t[k]/tot*100}%;background:${COLOR[k]}"></i></div><b>${t[k]}</b></div>`).join('') + '</div>'; };
+const bars = t => { const tot = t.n*2 || 1;
+  if (!isEditor){ return `<div class="bars"><div class="brow"><span>YRs serving</span><div><i style="width:${t.yr/tot*100}%;background:${COLOR.yr}"></i></div><b>${t.yr}</b></div></div>`; }
+  return '<div class="bars">' + KINDS.map(k => `<div class="brow"><span>${ST[k]}</span><div><i style="width:${t[k]/tot*100}%;background:${COLOR[k]}"></i></div><b>${t[k]}</b></div>`).join('') + '</div>'; };
 function renderTable(){
   const by = {}; feats.forEach(f => (by[f.p.COUNTY] ||= []).push(f));
-  const rows = Object.entries(by).map(([c,l]) => ({c, ...tally(l)}));
+  const rows = Object.entries(by).map(([c,l]) => ({c, ...tally(l), wy:l.filter(f => status(f.k)==='yr').length}));
+  const cols = isEditor ? [['c','County'],['n','Precincts'],...KINDS.map(k => [k, ST[k]])] : [['c','County'],['n','Precincts'],['yr','YRs serving'],['wy','Precincts with a YR']];
+  if (!cols.some(c => c[0]===sortKey)) sortKey = 'yr';
   rows.sort((a,b) => sortKey==='c' ? sortDir*a.c.localeCompare(b.c) : sortDir*(a[sortKey]-b[sortKey]) || a.c.localeCompare(b.c));
-  $$('#ctab th').forEach(th => { const b = th.querySelector('button'); if (!b) return; if (b.dataset.s === sortKey) th.setAttribute('aria-sort', sortDir > 0 ? 'ascending' : 'descending'); else th.removeAttribute('aria-sort'); });
-  $('#ctab tbody').innerHTML = rows.length ? rows.map(r => { const tot = r.n*2; return `<tr data-c="${esc(r.c)}" tabindex="0"><td>${esc(r.c)}</td><td>${r.n}</td><td>${r.yr}</td><td>${r.open}</td><td>${r.held}</td><td>${r.unk}</td><td class="cov"><div>${['yr','open','held'].map(k => `<i style="width:${r[k]/tot*100}%;background:${COLOR[k]}"></i>`).join('')}</div></td></tr>`; }).join('') : '<tr><td colspan="7">Loading counties…</td></tr>';
+  $('#ctab thead').innerHTML = '<tr>' + cols.map(([k,l]) => `<th${k===sortKey ? ` aria-sort="${sortDir>0?'ascending':'descending'}"` : ''}><button data-s="${k}">${l}</button></th>`).join('') + '<th class="cov">Seats</th></tr>';
+  $('#ctabLede').textContent = isEditor ? 'Every seat as marked, county by county. Only editors see this breakdown. Tap a county to zoom the map to it.' : 'Young Republicans serving in each county. Tap a county to zoom the map to it.';
+  $('#ctab tbody').innerHTML = rows.length ? rows.map(r => { const tot = r.n*2; return `<tr data-c="${esc(r.c)}" tabindex="0">${cols.map(([k]) => `<td>${k==='c' ? esc(r.c) : r[k]}</td>`).join('')}<td class="cov"><div>${(isEditor ? RANK : ['yr']).map(k => `<i style="width:${r[k]/tot*100}%;background:${COLOR[k]}"></i>`).join('')}</div></td></tr>`; }).join('') : `<tr><td colspan="${cols.length+1}">Loading counties…</td></tr>`;
 }
 $('#ctab thead').onclick = e => { const b = e.target.closest('button'); if (!b) return; const s = b.dataset.s; sortDir = sortKey === s ? -sortDir : (s==='c' ? 1 : -1); sortKey = s; renderTable(); };
 const goCounty = c => { select(null, true); setFilter({t:'county', v:c}); $('#mapsec').scrollIntoView({behavior:reduce?'auto':'smooth'}); };
@@ -241,7 +260,7 @@ function select(k, quiet){
   if (!k) $('#peek').hidden = true;
   if (!quiet) renderSide();
 }
-function showPeek(){ const f = byKey.get(sel); if (!f) return; $('#peekName').textContent = f.name; $('#peekSub').textContent = `${f.p.COUNTY} · ${ST[seat(sel,'m')]} / ${ST[seat(sel,'w')]}`; $('#peek').hidden = false; }
+function showPeek(){ const f = byKey.get(sel); if (!f) return; $('#peekName').textContent = f.name; $('#peekSub').textContent = isEditor ? `${f.p.COUNTY} · ${ST[seat(sel,'m')]} / ${ST[seat(sel,'w')]}` : `${f.p.COUNTY} · ${status(sel)==='yr' ? 'YR serving here' : 'No YR yet'}`; $('#peek').hidden = false; }
 $('#peekGo').onclick = () => $('#side').scrollIntoView({behavior:reduce?'auto':'smooth', block:'start'});
 function fromHash(){ const k = decodeURIComponent(location.hash.slice(1)); if (k && byKey.has(k) && k !== sel){ select(k); fitTo([byKey.get(k)], 14); } }
 addEventListener('hashchange', fromHash);
@@ -251,13 +270,13 @@ function renderSide(){
   const side = $('#side');
   if (!sel){
     const list = filter ? feats.filter(inFilter) : feats, t = tally(list);
-    const open = filter ? list.filter(f => status(f.k) === 'open').slice(0,8) : [];
+    const open = filter && isEditor ? list.filter(f => SEATS.some(([x]) => seat(f.k,x)==='open')).slice(0,8) : [];
     const recent = isEditor ? signups.slice(0,8) : [];
     side.innerHTML = accessHtml() + `<h2>${esc(filterName(filter))}</h2><p class="meta">${t.n} precincts · ${t.n*2} committee seats</p>${feats.length ? bars(t) : ''}
       ${filter ? '<div class="tags" style="margin-top:16px"><button class="btn ghost" id="clr">Show all of Montana</button></div>' : ''}
       ${open.length ? `<h3>Open seats here</h3><div class="tags">${open.map(f => `<button class="tag" data-k="${esc(f.k)}">${esc(f.name)}</button>`).join('')}</div>` : ''}
       ${recent.length ? `<h3>Newest sign-ups</h3><ul class="int">${recent.map(s => { const f = byKey.get(s.precinct); return `<li><b>${esc(s.name)}</b> · ${esc(s.contact)}<br><small>${esc(f ? f.name + ', ' + f.p.COUNTY : s.precinct)} · ${fmtDate(s.created_at)}</small></li>`; }).join('')}</ul>` : ''}
-      <h3>How to use the map</h3><ol class="steps"><li>Type your address or tap Near me to find your precinct.</li><li>Gold means a seat is open. Tap "I want to serve here" and leaders will follow up.</li><li>County chairs: log in to mark seats as open, filled, or filled by a YR.</li></ol>
+      <h3>How to use the map</h3><ol class="steps"><li>Type your address or tap Near me to find your precinct.</li><li>${isEditor ? "Mark each seat as YR, friendly, neutral, hostile or open, and save." : "Tap your precinct and choose I want to serve here. Leaders will follow up."}</li><li>${isEditor ? 'Use the Show menu and the county scoreboard to plan where to recruit.' : 'County chairs and chapter leaders: tap Chair login to request editor access.'}</li></ol>
       ${!sb ? '<p class="note">Seat data isn\'t connected yet, so every seat shows as not checked.</p>' : ''}`;
     $('#clr')?.addEventListener('click', () => setFilter(null));
     side.querySelectorAll('[data-ap]').forEach(b => b.onclick = () => { b.disabled = true; approve(b.dataset.ap, true); });
@@ -270,7 +289,7 @@ function renderSide(){
   const r = recs[sel] || {}, p = f.p, st = status(sel), k = sel;
   const head = `<button class="back" id="back">← ${filter ? 'Back to ' + esc(filterName(filter)) : 'All of Montana'}</button>
     <h2>${esc(f.name)}</h2>
-    <div class="tags"><button class="tag" data-f="county">${esc(p.COUNTY)} County</button>${f.hd ? `<button class="tag" data-f="hd">HD ${esc(f.hd)}</button>` : ''}${f.sd ? `<button class="tag" data-f="sd">SD ${esc(f.sd)}</button>` : ''}<span class="tag"><span class="sw" style="background:${COLOR[st]}"></span>${st==='yr' ? 'YR seated' : ST[st]}</span></div>
+    <div class="tags"><button class="tag" data-f="county">${esc(p.COUNTY)} County</button>${f.hd ? `<button class="tag" data-f="hd">HD ${esc(f.hd)}</button>` : ''}${f.sd ? `<button class="tag" data-f="sd">SD ${esc(f.sd)}</button>` : ''}${isEditor || st==='yr' ? `<span class="tag"><span class="sw" style="background:${COLOR[st]}"></span>${st==='yr' ? 'YR serving' : ST[st]}</span>` : ''}</div>
     ${f.poll ? `<p class="meta">Polling place: ${esc(f.poll)}</p>` : ''}`;
   let body;
   if (isEditor){
@@ -281,9 +300,9 @@ function renderSide(){
       <div class="saverow"><button class="btn" type="submit">Save precinct</button><p class="msg" id="pmsg"></p></div></form>
       <div id="sgl"></div>`;
   } else {
-    body = `<div class="ro">${SEATS.map(([s,l]) => `<div><span>${l}</span><b>${ST[seat(k,s)]}${r[s]?.n ? ' · ' + esc(r[s].n) : ''}</b></div>`).join('')}</div>`;
+    body = `<div class="ro">${SEATS.map(([s,l]) => `<div><span>${l}</span><b>${seat(k,s)==='yr' ? 'Young Republican' + (r[s]?.n ? ' · ' + esc(r[s].n) : '') : 'No YR yet'}</b></div>`).join('')}</div>`;
     const done = store.get('mtpm-signed-'+k);
-    body += `<div class="serve">${done ? '<h3>Thanks, you\'re on the list</h3><p class="meta">Leaders for this county will reach out.</p>' : `<h3>I want to serve here</h3><p class="meta">Live in this precinct? Leave your name and county and chapter leaders will follow up${st==='open' ? '. A seat here is open now.' : '.'}</p>
+    body += `<div class="serve">${done ? '<h3>Thanks, you\'re on the list</h3><p class="meta">Leaders for this county will reach out.</p>' : `<h3>I want to serve here</h3><p class="meta">Live in this precinct? Leave your name and county and chapter leaders will follow up.</p>
       <form id="if"><label class="field">Your name<input type="text" name="nm" required maxlength="80" autocomplete="name"></label><label class="field">Phone or email<input type="text" name="ct" required minlength="3" maxlength="80" autocomplete="email"></label>
       <div class="saverow" style="position:static"><button class="btn" type="submit"${sb ? '' : ' disabled'}>Put me forward</button><p class="msg" id="imsg"></p></div></form>`}</div>`;
   }
@@ -299,9 +318,17 @@ function renderSide(){
 const fromRow = r => ({m:{s:r.m_status, n:r.m_name}, w:{s:r.w_status, n:r.w_name}, at:r.updated_at});
 async function loadSeats(){
   if (!sb) return;
-  const {data, error} = await sb.from('seats').select('precinct,m_status,m_name,w_status,w_name,updated_at');
-  if (error){ console.warn(error); return; }
-  const n = {}; data.forEach(r => n[r.precinct] = fromRow(r)); recs = n; renderKpis(); renderTable(); paint();
+  let n = {};
+  if (isEditor){
+    const {data, error} = await sb.from('seats').select('precinct,m_status,m_name,w_status,w_name,updated_at');
+    if (error){ console.warn(error); return; }
+    data.forEach(r => n[r.precinct] = fromRow(r));
+  } else {
+    const {data, error} = await sb.rpc('public_yr');
+    if (error){ console.warn(error); return; }
+    (data||[]).forEach(r => n[r.precinct] = {m:{s:r.m_yr ? 'yr' : 'unk', n:r.m_name||''}, w:{s:r.w_yr ? 'yr' : 'unk', n:r.w_name||''}});
+  }
+  recs = n; renderKpis(); renderTable(); paint();
   if (!document.activeElement?.closest?.('#side form')) renderSide();
 }
 async function loadSignups(){
@@ -383,7 +410,7 @@ async function onAuth(s){
     }
   }
   $('#loginBtn').textContent = s ? 'Sign out' : 'Chair login';
-  await Promise.all([loadSignups(), loadAdmin()]); renderSide();
+  await Promise.all([loadSignups(), loadAdmin(), loadSeats()]); renderAll();
 }
 async function loadAdmin(){
   if (!isAdmin){ requests = []; editors = []; return; }
@@ -431,10 +458,11 @@ if (sb){
   sb.auth.getSession().then(({data}) => onAuth(data.session));
   sb.auth.onAuthStateChange((ev, s) => { if (ev === 'SIGNED_IN' || ev === 'SIGNED_OUT') onAuth(s); });
   sb.channel('seats-live').on('postgres_changes', {event:'*', schema:'public', table:'seats'}, pl => {
-    const r = pl.new; if (!r || !r.precinct) return; recs[r.precinct] = fromRow(r); renderKpis(); renderTable(); paint();
+    const r = pl.new; if (!isEditor || !r || !r.precinct) return; recs[r.precinct] = fromRow(r); renderKpis(); renderTable(); paint();
     if (sel === r.precinct && !document.activeElement?.closest?.('#side form')) renderSide();
   }).subscribe();
   document.addEventListener('visibilitychange', () => { if (!document.hidden) loadSeats(); });
+  setInterval(() => { if (!document.hidden && !isEditor) loadSeats(); }, 60000);
 }
 addEventListener('resize', () => map.invalidateSize());
 })();

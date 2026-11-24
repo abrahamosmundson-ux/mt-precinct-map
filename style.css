@@ -33,6 +33,7 @@ button,input,select,textarea{font:inherit;font-size:16px;color:inherit}
 .hero h1{font-size:clamp(36px,6vw,64px);font-weight:800;letter-spacing:-.01em}
 .hero p{margin:12px 0 0;max-width:54ch;font-size:17px;opacity:.94}
 .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.kpis.six{grid-template-columns:repeat(3,minmax(0,1fr))}
 .kpi{background:rgb(255 255 255/.1);border:1px solid rgb(255 255 255/.18);border-radius:12px;padding:12px 14px}
 .kpi b{display:block;font:800 clamp(26px,3.4vw,38px)/1 "Barlow Semi Condensed",sans-serif;font-variant-numeric:tabular-nums}
 .kpi span{font-size:14px;opacity:.92}
@@ -113,7 +114,8 @@ button.tag{cursor:pointer;min-height:32px}
 .steps li::before{content:counter(s);display:grid;place-items:center;width:28px;height:28px;border-radius:50%;background:var(--red);color:#fff;font-weight:600;font-size:14px}
 .seat{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:12px}
 .seat h3{margin:0 0 10px;font-size:18px}
-.opts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px}
+.opts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+@media(max-width:420px){.opts{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .opts label{position:relative}
 .opts input{position:absolute;opacity:0}
 .opts label>span{display:flex;align-items:center;gap:8px;min-height:42px;padding:6px 10px;border:1px solid var(--line);border-radius:9px;font-size:15px;cursor:pointer;background:var(--bg)}
