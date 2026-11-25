@@ -10,15 +10,16 @@ const kinds = () => isEditor ? ['yr','friendly','neutral','hostile','filled','op
 const SEATS = [['m','Committeeman'],['w','Committeewoman']];
 const CCSEATS = [['ch','County Chair'],['fi','Finance Chair'],['cm','State Committeeman'],['cw','State Committeewoman']];
 const ALPHA = v => v === 'unk' ? .1 : .62;
-/* Diagonal (/) split fills: an SVG pattern sized to each shape's own box, cut into equal bands. */
+/* Split fills: repeating diagonal (/) stripes, one stripe per seat. */
 function splitFill(m, parts){
   const svg = m.getPanes().overlayPane.querySelector('svg'); if (!svg) return COLOR[parts[0]];
   const id = (m === map ? 'pm' : 'cc') + '-' + parts.join('-');
   if (!svg.querySelector('#' + id)){
     let defs = svg.querySelector('defs'); if (!defs){ defs = document.createElementNS('http://www.w3.org/2000/svg','defs'); svg.prepend(defs); }
     const n = parts.length, p = document.createElementNS('http://www.w3.org/2000/svg','pattern');
-    p.setAttribute('id', id); p.setAttribute('patternUnits','objectBoundingBox'); p.setAttribute('patternContentUnits','objectBoundingBox'); p.setAttribute('width','1'); p.setAttribute('height','1');
-    p.innerHTML = parts.map((v,i) => { const a = 2*i/n, b = 2*(i+1)/n; return `<polygon points="${a},0 ${b},0 0,${b} 0,${a}" fill="${COLOR[v]}" fill-opacity="${ALPHA(v)}"/>`; }).join('');
+    const w = 5; /* stripe width in screen pixels */
+    p.setAttribute('id', id); p.setAttribute('patternUnits','userSpaceOnUse'); p.setAttribute('width', n*w); p.setAttribute('height', n*w); p.setAttribute('patternTransform','rotate(45)');
+    p.innerHTML = parts.map((v,i) => `<rect x="${i*w}" y="0" width="${w}" height="${n*w}" fill="${COLOR[v]}" fill-opacity="${ALPHA(v)}"/>`).join('');
     defs.append(p);
   }
   return `url(#${id})`;
@@ -246,7 +247,7 @@ function renderKpis(){
   $('#kpis').innerHTML = k.map(([v,l,c]) => `<div class="kpi"><b>${f(v)}</b><span>${c?`<i style="background:${COLOR[c]}"></i>`:''}${l}</span></div>`).join('');
   const tot = t.n*2 || 1;
   $('#prog').innerHTML = `<span>${f(tot-t.unk)} of ${f(t.n*2)} seats checked · ${f(withYR)} precincts have a YR</span><div>${RANK.map(x => `<i style="width:${t[x]/tot*100}%;background:${COLOR[x]}"></i>`).join('')}</div>`;
-  $('#legend').innerHTML = kinds().map(x => `<span><i style="background:${x==='unk'?'transparent':COLOR[x]}${x==='unk'?';border:1.5px dashed var(--mute)':''}"></i>${x==='yr'?'YR in a seat':ST[x]}</span>`).join('') + `<span><i class="splitkey"></i>Split: man ╱ woman</span>`;
+  $('#legend').innerHTML = kinds().map(x => `<span><i style="background:${x==='unk'?'transparent':COLOR[x]}${x==='unk'?';border:1.5px dashed var(--mute)':''}"></i>${x==='yr'?'YR in a seat':ST[x]}</span>`).join('') + `<span><i class="splitkey"></i>Split seats</span>`;
   const sh = $('#show'), cur = sh.value;
   sh.innerHTML = '<option value="">All precincts</option>' + (isEditor ? [['yr','Has a YR'],['open','Has an open seat'],['friendly','Has a friendly'],['hostile','Has a hostile'],['neutral','Has a neutral'],['filled','Filled, unknown'],['unk','Not checked']] : [['yr','Has a YR'],['open','Has an open seat'],['filled','Filled'],['unk','Not checked']]).map(([v,l]) => `<option value="${v}">${l}</option>`).join('');
   sh.value = [...sh.options].some(o => o.value === cur) ? cur : '';

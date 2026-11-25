@@ -190,7 +190,7 @@ body.ed .hero{padding-block:14px}
 body.ed .hero svg.mt{display:none}
 
 /* ---------- split key ---------- */
-.legend i.splitkey,.sw.splitkey{background:linear-gradient(135deg,var(--yr) 0 50%,var(--open) 50% 100%)}
+.legend i.splitkey,.sw.splitkey{background:repeating-linear-gradient(135deg,var(--yr) 0 3px,var(--open) 3px 6px)}
 
 /* ---------- CC map ---------- */
 #ccsec .mapbox{height:clamp(420px,68vh,760px)}
