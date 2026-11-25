@@ -8,6 +8,21 @@ const COLOR = {yr:'#c8102e', friendly:'#2f9e5b', neutral:'#7b8898', hostile:'#7c
 const RANK = ['yr','open','hostile','friendly','neutral','filled'];
 const kinds = () => isEditor ? ['yr','friendly','neutral','hostile','filled','open','unk'] : ['yr','open','filled','unk'];
 const SEATS = [['m','Committeeman'],['w','Committeewoman']];
+const CCSEATS = [['ch','County Chair'],['fi','Finance Chair'],['cm','State Committeeman'],['cw','State Committeewoman']];
+const ALPHA = v => v === 'unk' ? .1 : .62;
+/* Diagonal (/) split fills: an SVG pattern sized to each shape's own box, cut into equal bands. */
+function splitFill(m, parts){
+  const svg = m.getPanes().overlayPane.querySelector('svg'); if (!svg) return COLOR[parts[0]];
+  const id = (m === map ? 'pm' : 'cc') + '-' + parts.join('-');
+  if (!svg.querySelector('#' + id)){
+    let defs = svg.querySelector('defs'); if (!defs){ defs = document.createElementNS('http://www.w3.org/2000/svg','defs'); svg.prepend(defs); }
+    const n = parts.length, p = document.createElementNS('http://www.w3.org/2000/svg','pattern');
+    p.setAttribute('id', id); p.setAttribute('patternUnits','objectBoundingBox'); p.setAttribute('patternContentUnits','objectBoundingBox'); p.setAttribute('width','1'); p.setAttribute('height','1');
+    p.innerHTML = parts.map((v,i) => { const a = 2*i/n, b = 2*(i+1)/n; return `<polygon points="${a},0 ${b},0 0,${b} 0,${a}" fill="${COLOR[v]}" fill-opacity="${ALPHA(v)}"/>`; }).join('');
+    defs.append(p);
+  }
+  return `url(#${id})`;
+}
 const GEO = 'https://gisservice.mt.gov/ArcGIS/rest/services/msdi_address_locator_geocode_v1/GeocodeServer';
 const MT = {x0:-116.1, x1:-104.0, y0:44.3, y1:49.05};
 const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -43,11 +58,12 @@ map.fitBounds([[MT.y0,MT.x0],[MT.y1,MT.x1]]);
 let precinctLayer = null, lineLayer = L.layerGroup().addTo(map), labLayer = L.layerGroup().addTo(map), pLabLayer = L.layerGroup().addTo(map), pinMarker = null;
 
 function style(f){
-  const s = status(f.k), dim = !inFilter(f) || !shows(f.k), on = f.k === sel;
+  const s = status(f.k), dim = !inFilter(f) || !shows(f.k), on = f.k === sel, a = seat(f.k,'m'), b = seat(f.k,'w'), split = a !== b;
   return {
     color: on ? (dark?'#ffffff':'#121c27') : (dark?'#9aa8b8':'#3c4855'),
     weight: on ? 3.5 : .7, opacity: dim ? .25 : (on ? 1 : .55),
-    fillColor: COLOR[s], fillOpacity: dim ? .04 : on ? (s==='unk' ? .22 : .6) : (s==='unk' ? .08 : .55)
+    fillColor: split ? splitFill(map, [a,b]) : COLOR[s],
+    fillOpacity: split ? (dim ? .15 : 1) : dim ? .04 : on ? (s==='unk' ? .22 : .6) : (s==='unk' ? .08 : .55)
   };
 }
 function paint(){ if (!precinctLayer) return; precinctLayer.eachLayer(l => l.setStyle(style(l.feature._f))); const L0 = byKey.get(sel)?.layer; if (L0) L0.bringToFront(); }
@@ -97,7 +113,7 @@ function useData(fc){
       const f = ft._f; f.layer = layer; ft._f = f;
       const c = layer.getBounds().getCenter(); f.ll = c; f.area = (f.bx[2]-f.bx[0])*(f.bx[3]-f.bx[1])*.6/stateA;
       layer.on('click', () => { select(f.k); if (narrow()) showPeek(); });
-      if (matchMedia('(hover:hover)').matches) layer.bindTooltip(() => `<b>${esc(f.name)}</b><br>${esc(f.p.COUNTY)} · ${status(f.k)==='yr' ? 'YR serving' : ST[status(f.k)]}`, {sticky:true, className:'tt', direction:'top', offset:[0,-8]});
+      if (matchMedia('(hover:hover)').matches) layer.bindTooltip(() => `<b>${esc(f.name)}</b><br>${esc(f.p.COUNTY)} · ${seat(f.k,'m') !== seat(f.k,'w') ? 'Man: ' + ST[seat(f.k,'m')] + ' · Woman: ' + ST[seat(f.k,'w')] : status(f.k)==='yr' ? 'YR serving' : ST[status(f.k)]}`, {sticky:true, className:'tt', direction:'top', offset:[0,-8]});
     }
   }).addTo(map);
   const cs = [...new Set(feats.map(f => f.p.COUNTY).filter(Boolean))].sort();
@@ -214,8 +230,9 @@ function nearMe(){
     () => { msg.textContent = 'Location was blocked or unavailable. Type your address instead.'; }, {enableHighAccuracy:true, timeout:12000});
 }
 $('#gpsBtn').onclick = nearMe;
-$$('[data-gps]').forEach(b => b.onclick = () => { $('#mapsec').scrollIntoView({behavior:reduce?'auto':'smooth'}); nearMe(); });
-$$('[data-focus-q]').forEach(b => b.onclick = () => { $('#mapsec').scrollIntoView({behavior:reduce?'auto':'smooth'}); setTimeout(() => q.focus(), reduce ? 0 : 450); });
+$$('[data-gps]').forEach(b => b.onclick = () => { go('map'); nearMe(); });
+$$('[data-focus-q]').forEach(b => b.onclick = () => { go('map'); setTimeout(() => q.focus(), 150); });
+$$('[data-go]').forEach(b => b.onclick = () => go(b.dataset.go));
 
 /* ---------- counts ---------- */
 function tally(list){ const t = {n:list.length, yr:0, friendly:0, neutral:0, hostile:0, filled:0, open:0, unk:0}; list.forEach(f => SEATS.forEach(([s]) => t[seat(f.k,s)]++)); return t; }
@@ -229,7 +246,7 @@ function renderKpis(){
   $('#kpis').innerHTML = k.map(([v,l,c]) => `<div class="kpi"><b>${f(v)}</b><span>${c?`<i style="background:${COLOR[c]}"></i>`:''}${l}</span></div>`).join('');
   const tot = t.n*2 || 1;
   $('#prog').innerHTML = `<span>${f(tot-t.unk)} of ${f(t.n*2)} seats checked · ${f(withYR)} precincts have a YR</span><div>${RANK.map(x => `<i style="width:${t[x]/tot*100}%;background:${COLOR[x]}"></i>`).join('')}</div>`;
-  $('#legend').innerHTML = kinds().map(x => `<span><i style="background:${x==='unk'?'transparent':COLOR[x]}${x==='unk'?';border:1.5px dashed var(--mute)':''}"></i>${x==='yr'?'YR in a seat':ST[x]}</span>`).join('');
+  $('#legend').innerHTML = kinds().map(x => `<span><i style="background:${x==='unk'?'transparent':COLOR[x]}${x==='unk'?';border:1.5px dashed var(--mute)':''}"></i>${x==='yr'?'YR in a seat':ST[x]}</span>`).join('') + `<span><i class="splitkey"></i>Split: man ╱ woman</span>`;
   const sh = $('#show'), cur = sh.value;
   sh.innerHTML = '<option value="">All precincts</option>' + (isEditor ? [['yr','Has a YR'],['open','Has an open seat'],['friendly','Has a friendly'],['hostile','Has a hostile'],['neutral','Has a neutral'],['filled','Filled, unknown'],['unk','Not checked']] : [['yr','Has a YR'],['open','Has an open seat'],['filled','Filled'],['unk','Not checked']]).map(([v,l]) => `<option value="${v}">${l}</option>`).join('');
   sh.value = [...sh.options].some(o => o.value === cur) ? cur : '';
@@ -247,20 +264,20 @@ function renderTable(){
   $('#ctab tbody').innerHTML = rows.length ? rows.map(r => { const tot = r.n*2; return `<tr data-c="${esc(r.c)}" tabindex="0">${cols.map(([k]) => `<td>${k==='c' ? esc(r.c) : r[k]}</td>`).join('')}<td class="cov"><div>${RANK.map(k => `<i style="width:${r[k]/tot*100}%;background:${COLOR[k]}"></i>`).join('')}</div></td></tr>`; }).join('') : `<tr><td colspan="${cols.length+1}">Loading counties…</td></tr>`;
 }
 $('#ctab thead').onclick = e => { const b = e.target.closest('button'); if (!b) return; const s = b.dataset.s; sortDir = sortKey === s ? -sortDir : (s==='c' ? 1 : -1); sortKey = s; renderTable(); };
-const goCounty = c => { select(null, true); setFilter({t:'county', v:c}); $('#mapsec').scrollIntoView({behavior:reduce?'auto':'smooth'}); };
+const goCounty = c => { go('map'); select(null, true); setTimeout(() => setFilter({t:'county', v:c}), 60); scrollTo({top:0, behavior:reduce?'auto':'smooth'}); };
 $('#ctab tbody').onclick = e => { const r = e.target.closest('tr[data-c]'); if (r) goCounty(r.dataset.c); };
 $('#ctab tbody').onkeydown = e => { const r = e.target.closest('tr[data-c]'); if (r && (e.key==='Enter' || e.key===' ')){ e.preventDefault(); goCounty(r.dataset.c); } };
 
 /* ---------- selection & panel ---------- */
 function select(k, quiet){
   sel = k; paint();
-  try { history.replaceState(null, '', k ? '#' + k : location.pathname + location.search); } catch {}
+  try { history.replaceState(null, '', '#' + (k || view)); } catch {}
   if (!k) $('#peek').hidden = true;
   if (!quiet) renderSide();
 }
 function showPeek(){ const f = byKey.get(sel); if (!f) return; $('#peekName').textContent = f.name; $('#peekSub').textContent = `${f.p.COUNTY} · ${ST[seat(sel,'m')]} / ${ST[seat(sel,'w')]}`; $('#peek').hidden = false; }
 $('#peekGo').onclick = () => $('#side').scrollIntoView({behavior:reduce?'auto':'smooth', block:'start'});
-function fromHash(){ const k = decodeURIComponent(location.hash.slice(1)); if (k && byKey.has(k) && k !== sel){ select(k); fitTo([byKey.get(k)], 14); } }
+function fromHash(){ const k = decodeURIComponent(location.hash.slice(1)); if (k && byKey.has(k)){ if (view !== 'map') go('map', true); if (k !== sel){ select(k); fitTo([byKey.get(k)], 14); } } else if (tabsFor().some(([v]) => v === k)) go(k, true); }
 addEventListener('hashchange', fromHash);
 const fmtDate = s => s ? new Date(s).toLocaleDateString(undefined, {month:'short', day:'numeric', year:'numeric'}) : '';
 
@@ -270,18 +287,13 @@ function renderSide(){
     const list = filter ? feats.filter(inFilter) : feats, t = tally(list);
     const open = filter ? list.filter(f => SEATS.some(([x]) => seat(f.k,x)==='open')).slice(0,8) : [];
     const recent = isEditor ? signups.slice(0,8) : [];
-    side.innerHTML = accessHtml() + `<h2>${esc(filterName(filter))}</h2><p class="meta">${t.n} precincts · ${t.n*2} committee seats</p>${feats.length ? bars(t) : ''}
+    side.innerHTML = `<h2>${esc(filterName(filter))}</h2><p class="meta">${t.n} precincts · ${t.n*2} committee seats</p>${feats.length ? bars(t) : ''}
       ${filter ? '<div class="tags" style="margin-top:16px"><button class="btn ghost" id="clr">Show all of Montana</button></div>' : ''}
       ${open.length ? `<h3>Open seats here</h3><div class="tags">${open.map(f => `<button class="tag" data-k="${esc(f.k)}">${esc(f.name)}</button>`).join('')}</div>` : ''}
       ${recent.length ? `<h3>Newest sign-ups</h3><ul class="int">${recent.map(s => { const f = byKey.get(s.precinct); return `<li><b>${esc(s.name)}</b> · ${esc(s.contact)}<br><small>${esc(f ? f.name + ', ' + f.p.COUNTY : s.precinct)} · ${fmtDate(s.created_at)}</small></li>`; }).join('')}</ul>` : ''}
-      <h3>How to use the map</h3><ol class="steps"><li>Type your address or tap Near me to find your precinct.</li><li>${isEditor ? "Mark each seat as YR, friendly, neutral, hostile or open, and save." : "Gold means a seat is open. Tap the precinct and choose I want to serve here."}</li><li>${isEditor ? 'Use the Show menu and the county scoreboard to plan where to recruit.' : 'County chairs and chapter leaders: tap Chair login to request editor access.'}</li></ol>
+      <h3>How to use the map</h3><ol class="steps"><li>Type your address or tap Near me to find your precinct.</li><li>${isEditor ? "Mark each seat as YR, friendly, neutral, hostile or open, and save." : "Gold means a seat is open. Tap the precinct and choose I want to serve here."}</li><li>${isEditor ? 'Use the Show menu and the county scoreboard to plan where to recruit.' : 'County chairs and chapter leaders: tap Admin login to request access.'}</li></ol>
       ${!sb ? '<p class="note">Seat data isn\'t connected yet, so every seat shows as not checked.</p>' : ''}`;
     $('#clr')?.addEventListener('click', () => setFilter(null));
-    side.querySelectorAll('[data-ap]').forEach(b => b.onclick = () => { b.disabled = true; approve(b.dataset.ap, true); });
-    side.querySelectorAll('[data-dn]').forEach(b => b.onclick = () => { b.disabled = true; approve(b.dataset.dn, false); });
-    side.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => removeEditor(b.dataset.rm));
-    $('#impCheck')?.addEventListener('click', checkImport);
-    $('#impGo')?.addEventListener('click', runImport);
     side.querySelectorAll('[data-k]').forEach(b => b.onclick = () => { select(b.dataset.k); fitTo([byKey.get(b.dataset.k)], 14); });
     return;
   }
@@ -367,6 +379,7 @@ async function saveInterest(e){
 
 /* ---------- login ---------- */
 const dlg = $('#login');
+$$('#ownerDlg [data-close]').forEach(b => b.onclick = () => $('#ownerDlg').close());
 $('#loginBtn').onclick = async () => {
   if (session){ await sb.auth.signOut(); return; }
   if (!sb){ alert('Seat data is not connected yet.'); return; }
@@ -374,7 +387,7 @@ $('#loginBtn').onclick = async () => {
   if ($('#reqCounty').options.length < 2) $('#reqCounty').innerHTML = '<option value="">Choose your county</option>' + [...new Set(feats.map(f => f.p.COUNTY))].sort().map(c => `<option>${esc(c)}</option>`).join('');
   dlg.showModal();
 };
-$$('[data-close]').forEach(b => b.onclick = () => dlg.close());
+$$('#login [data-close]').forEach(b => b.onclick = () => dlg.close());
 function setMode(m){ $$('.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.mode === m)); $('#loginForm').hidden = m !== 'in'; $('#reqForm').hidden = m !== 'req'; }
 $$('.tabs button').forEach(b => b.onclick = () => setMode(b.dataset.mode));
 $('#reqForm').onsubmit = async e => {
@@ -409,8 +422,8 @@ async function onAuth(s){
       }
     }
   }
-  $('#loginBtn').textContent = s ? 'Sign out' : 'Chair login';
-  await Promise.all([loadSignups(), loadAdmin(), loadSeats()]); renderAll();
+  $('#loginBtn').textContent = s ? 'Sign out' : 'Admin login';
+  await Promise.all([loadSignups(), loadAdmin(), loadSeats(), loadCC()]); applyRole(); renderAll(); renderBanner(); renderOwner();
 }
 async function loadAdmin(){
   if (!isAdmin){ requests = []; editors = []; return; }
@@ -421,19 +434,33 @@ async function approve(id, ok){
   const r = requests.find(x => x.user_id === id); if (!r) return;
   if (ok){ const {error} = await sb.from('editors').insert({email:r.email.toLowerCase(), name:r.name, county:r.county}); if (error && !/duplicate/i.test(error.message)){ alert('Could not approve: ' + error.message); return; } }
   await sb.from('editor_requests').update({status: ok ? 'approved' : 'denied'}).eq('user_id', id);
-  await loadAdmin(); renderSide();
+  await loadAdmin(); renderOwner();
 }
 async function removeEditor(email){
   if (email.toLowerCase() === (session?.user?.email||'').toLowerCase()) return;
   if (!confirm('Remove edit access for ' + email + '?')) return;
-  await sb.from('editors').delete().eq('email', email); await loadAdmin(); renderSide();
+  await sb.from('editors').delete().eq('email', email); await loadAdmin(); renderOwner();
 }
+function renderBanner(){
+  const b = $('#banner');
+  if (!(session && !isEditor)){ b.hidden = true; return; }
+  const st = myReq?.status;
+  b.textContent = st === 'denied' ? 'Your admin access request was not approved. Contact the map owner if you think this is a mistake.' : myReq ? 'Signed in. Your admin access request is waiting for the map owner to approve it.' : 'Signed in, but this account is not an admin. Sign out and use Request access, or ask the map owner to add you.';
+  b.hidden = false;
+}
+function renderOwner(){
+  $('#reqBtn').hidden = !isAdmin; const n = requests.length; $('#reqBadge').hidden = !n; $('#reqBadge').textContent = n;
+  if (!isAdmin) return;
+  $('#ownerBody').innerHTML = accessHtml();
+  const ob = $('#ownerBody');
+  ob.querySelectorAll('[data-ap]').forEach(b => b.onclick = () => { b.disabled = true; approve(b.dataset.ap, true); });
+  ob.querySelectorAll('[data-dn]').forEach(b => b.onclick = () => { b.disabled = true; approve(b.dataset.dn, false); });
+  ob.querySelectorAll('[data-rm]').forEach(b => b.onclick = () => removeEditor(b.dataset.rm));
+  $('#impCheck')?.addEventListener('click', checkImport);
+  $('#impGo')?.addEventListener('click', runImport);
+}
+$('#reqBtn').onclick = () => { renderOwner(); $('#ownerDlg').showModal(); };
 function accessHtml(){
-  if (session && !isEditor){
-    const st = myReq?.status;
-    return `<div class="pending"><h3>${st === 'denied' ? 'Access request not approved' : myReq ? 'Your request is waiting for approval' : 'Request editor access'}</h3><p class="meta">${st === 'denied' ? 'Contact the map owner if you think this is a mistake.' : myReq ? 'You can view everything now. Once the map owner approves you, you can mark seats.' : 'Your account isn\'t on the editors list. Sign out and use Request access, or ask the map owner to add you.'}</p></div>`;
-  }
-  if (!isAdmin) return '';
   const reqs = requests.length ? `<ul class="int">${requests.map(r => `<li><div><b>${esc(r.name)}</b> · ${esc(r.role)}<br><small>${esc(r.county)} County · ${esc(r.phone)} · ${esc(r.email)}</small></div><div class="acts"><button class="btn" data-ap="${esc(r.user_id)}">Approve</button><button class="btn ghost" data-dn="${esc(r.user_id)}">Deny</button></div></li>`).join('')}</ul>` : '<p class="meta">No requests waiting.</p>';
   const eds = `<details><summary class="meta" style="cursor:pointer;margin-top:10px">Editors (${editors.length})</summary><ul class="int">${editors.map(e => `<li><div><b>${esc(e.name || e.email)}</b>${e.admin ? ' · owner' : ''}<br><small>${esc(e.email)}${e.county ? ' · ' + esc(e.county) : ''}</small></div><div class="acts">${e.admin ? '' : `<button class="btn ghost" data-rm="${esc(e.email)}">Remove</button>`}</div></li>`).join('')}</ul></details>`;
   const imp = `<details id="impBox"><summary class="meta" style="cursor:pointer;margin-top:10px">Bulk import names</summary><form onsubmit="return false">
@@ -497,6 +524,113 @@ async function runImport(){
   $('#impMsg').textContent = `Imported ${done} precincts.`;
 }
 
+/* ---------- views & tabs ---------- */
+let view = 'map';
+const tabsFor = () => isEditor ? [['map','Precinct map'],['cc','CC map']] : [['map','Map'],['counties','Counties'],['involved','Get involved']];
+function renderTabs(){ $('#tabs').innerHTML = tabsFor().map(([v,l]) => `<button role="tab" data-v="${v}" aria-selected="${v===view}">${l}</button>`).join(''); }
+$('#tabs').onclick = e => { const b = e.target.closest('[data-v]'); if (b) go(b.dataset.v); };
+function go(v, fromHashChange){
+  if (!tabsFor().some(([x]) => x === v)) v = 'map';
+  view = v; document.body.dataset.view = v; document.body.classList.toggle('ed', isEditor);
+  $$('[data-pub],[data-ed]').forEach(el => { const list = (isEditor ? el.dataset.ed : el.dataset.pub) || ''; el.hidden = !list.split(' ').includes(v); });
+  renderTabs();
+  if (!fromHashChange){ try { history.replaceState(null, '', '#' + (v === 'map' && sel ? sel : v)); } catch {} scrollTo({top:0}); }
+  if (v === 'map') setTimeout(() => map.invalidateSize(), 30);
+  if (v === 'cc') initCC();
+}
+function applyRole(){ if (!tabsFor().some(([x]) => x === view)) view = 'map'; go(view, true); }
+
+/* ---------- CC map (admins only) ---------- */
+let cc = {}, ccSel = null, ccMap = null, ccLayer = null, ccLab = null, ccFeats = [];
+const ccSeat = (c,s) => cc[c]?.[s]?.s || 'unk';
+const ccParts = c => CCSEATS.map(([s]) => ccSeat(c,s)).sort((a,b) => (RANK.indexOf(a) < 0 ? 99 : RANK.indexOf(a)) - (RANK.indexOf(b) < 0 ? 99 : RANK.indexOf(b)));
+async function loadCC(){
+  if (!sb || !isEditor){ cc = {}; return; }
+  const {data, error} = await sb.from('cc_seats').select('*');
+  if (error){ console.warn(error); return; }
+  const n = {}; (data||[]).forEach(r => n[r.county] = ccFromRow(r)); cc = n; if (ccMap) ccRender();
+}
+const ccFromRow = r => ({ch:{s:r.ch_status,n:r.ch_name}, fi:{s:r.fi_status,n:r.fi_name}, cm:{s:r.cm_status,n:r.cm_name}, cw:{s:r.cw_status,n:r.cw_name}, no:r.notes||'', at:r.updated_at});
+function initCC(){
+  if (ccMap){ setTimeout(() => ccMap.invalidateSize(), 30); ccRender(); return; }
+  ccMap = L.map('ccmap', {zoomControl:false, minZoom:5, maxZoom:12, zoomSnap:.25, maxBounds:[[42.5,-120],[51,-100]]});
+  L.control.zoom({position:'topright'}).addTo(ccMap);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {maxZoom:19, className:'basemap', attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'}).addTo(ccMap);
+  ccMap.createPane('labels').style.zIndex = 460; ccMap.getPane('labels').style.pointerEvents = 'none';
+  ccMap.fitBounds([[MT.y0,MT.x0],[MT.y1,MT.x1]]);
+  fetch('data/counties.json').then(r => r.json()).then(fc => {
+    ccFeats = fc.features;
+    ccLayer = L.geoJSON(fc, {style: ft => ccStyle(ft.properties.COUNTY), onEachFeature: (ft, layer) => {
+      ft.layer = layer; layer.on('click', () => ccSelect(ft.properties.COUNTY));
+      if (matchMedia('(hover:hover)').matches) layer.bindTooltip(() => `<b>${esc(ft.properties.COUNTY)}</b><br>${CCSEATS.map(([s,l]) => l + ': ' + EDLABEL[ccSeat(ft.properties.COUNTY,s)]).join('<br>')}`, {sticky:true, className:'tt', direction:'top', offset:[0,-8]});
+    }}).addTo(ccMap);
+    ccLab = L.layerGroup().addTo(ccMap); ccRender();
+  });
+  ccMap.on('zoomend', ccLabels);
+}
+function ccStyle(c){
+  const parts = ccParts(c), same = parts.every(p => p === parts[0]), on = c === ccSel;
+  return {color: on ? (dark?'#fff':'#121c27') : (dark?'#cfd7df':'#26313d'), weight: on ? 3.5 : 1.2, opacity: .9,
+    fillColor: same ? COLOR[parts[0]] : splitFill(ccMap, parts), fillOpacity: same ? (parts[0]==='unk' ? .1 : .62) : 1};
+}
+function ccLabels(){
+  if (!ccLab) return; ccLab.clearLayers(); const z = ccMap.getZoom();
+  ccFeats.forEach(f => { const c = f.properties.COUNTY;
+    const dots = CCSEATS.map(([s]) => `<i style="background:${COLOR[ccSeat(c,s)]}${ccSeat(c,s)==='unk'?';background:transparent;border:1.5px dashed currentColor':''}"></i>`).join('');
+    L.marker([f.properties.ly, f.properties.lx], {pane:'labels', interactive:false, keyboard:false, icon: L.divIcon({className:'cclab', iconSize:null, html: `${z >= 6.4 ? `<span>${esc(c)}</span>` : ''}<b>${dots}</b>`})}).addTo(ccLab); });
+}
+function ccTally(){ const t = {n:0, yr:0, friendly:0, neutral:0, hostile:0, filled:0, open:0, unk:0}; ccFeats.forEach(f => CCSEATS.forEach(([s]) => { t[ccSeat(f.properties.COUNTY,s)]++; t.n++; })); return t; }
+function ccRender(){
+  if (ccLayer) ccLayer.eachLayer(l => l.setStyle(ccStyle(l.feature.properties.COUNTY)));
+  const sl = ccSel && ccFeats.find(f => f.properties.COUNTY === ccSel); if (sl) sl.layer.bringToFront();
+  ccLabels();
+  const t = ccTally(), tot = t.n || 224, ours = t.yr + t.friendly, need = Math.floor(tot/2) + 1;
+  $('#ccbar').innerHTML = `<div class="ccnum"><b>${ours}</b><span>YR + friendly votes</span></div><div class="ccnum"><b>${t.hostile}</b><span>hostile</span></div><div class="ccnum"><b>${need}</b><span>needed for a majority of ${tot}</span></div>
+    <div class="cctrack" aria-label="Vote count"><div>${['yr','friendly','neutral','filled','open','hostile'].map(k => `<i style="width:${t[k]/tot*100}%;background:${COLOR[k]}"></i>`).join('')}</div><span class="mid" style="left:${need/tot*100}%"></span></div>`;
+  $('#cclegend').innerHTML = ['yr','friendly','neutral','hostile','filled','open','unk'].map(x => `<span><i style="background:${x==='unk'?'transparent':COLOR[x]}${x==='unk'?';border:1.5px dashed var(--mute)':''}"></i>${EDLABEL[x]}</span>`).join('') + '<span><i class="splitkey"></i>Split votes</span>';
+  ccTable(); if (!document.activeElement?.closest?.('#ccside form')) ccSide();
+}
+function ccTable(){
+  const rows = ccFeats.map(f => f.properties.COUNTY).sort();
+  $('#cctab thead').innerHTML = '<tr><th>County</th>' + CCSEATS.map(([,l]) => `<th>${l}</th>`).join('') + '<th>YR + friendly</th></tr>';
+  $('#cctab tbody').innerHTML = rows.map(c => `<tr data-cc="${esc(c)}" tabindex="0"><td>${esc(c)}</td>${CCSEATS.map(([s]) => { const v = ccSeat(c,s), n = cc[c]?.[s]?.n; return `<td class="ccc"><span class="sw" style="background:${v==='unk'?'transparent':COLOR[v]}${v==='unk'?';border:1.5px dashed var(--mute)':''}"></span>${n ? esc(n) : EDLABEL[v]}</td>`; }).join('')}<td>${CCSEATS.filter(([s]) => ['yr','friendly'].includes(ccSeat(c,s))).length} of 4</td></tr>`).join('');
+}
+$('#cctab tbody').onclick = e => { const r = e.target.closest('tr[data-cc]'); if (r){ ccSelect(r.dataset.cc); scrollTo({top:0, behavior:reduce?'auto':'smooth'}); } };
+$('#cctab tbody').onkeydown = e => { const r = e.target.closest('tr[data-cc]'); if (r && (e.key==='Enter'||e.key===' ')){ e.preventDefault(); ccSelect(r.dataset.cc); } };
+function ccSelect(c){
+  ccSel = c; ccRender();
+  const f = c && ccFeats.find(x => x.properties.COUNTY === c); if (f) ccMap.flyToBounds(f.layer.getBounds(), {padding:[40,40], maxZoom:9, animate:!reduce, duration:.7});
+  if (c && narrow()) $('#ccside').scrollIntoView({behavior:reduce?'auto':'smooth', block:'start'});
+}
+function ccSide(){
+  const side = $('#ccside');
+  if (!ccSel){
+    const t = ccTally(), tot = t.n || 224;
+    side.innerHTML = `<h2>Statewide</h2><p class="meta">56 counties · ${tot} votes for the state party board</p>
+      <div class="bars">${['yr','friendly','neutral','hostile','filled','open','unk'].map(k => `<div class="brow"><span>${EDLABEL[k]}</span><div><i style="width:${t[k]/tot*100}%;background:${COLOR[k]}"></i></div><b>${t[k]}</b></div>`).join('')}</div>
+      <h3>How to use it</h3><ol class="steps"><li>Tap a county on the map or in the table.</li><li>Mark each of its four voters and save.</li><li>The bar at the top counts YR and friendly votes against a majority.</li></ol>`;
+    return;
+  }
+  const c = ccSel, r = cc[c] || {};
+  side.innerHTML = `<button class="back" id="ccback">← All counties</button><h2>${esc(c)} County</h2>
+    <form id="ccf">${CCSEATS.map(([s,l]) => `<div class="seat"><h3>${l}</h3><div class="opts" role="radiogroup" aria-label="${l}">${kinds().map(v => `<label><input type="radio" name="${s}" value="${v}"${ccSeat(c,s)===v ? ' checked' : ''}><span><span class="sw" style="background:${COLOR[v]}"></span>${EDLABEL[v]}</span></label>`).join('')}</div>
+      <label class="field">Name<input type="text" name="${s}n" value="${esc(r[s]?.n || '')}" autocomplete="off" maxlength="120"></label></div>`).join('')}
+      <label class="field">Notes (admins only)<textarea name="no" rows="3" maxlength="2000">${esc(r.no || '')}</textarea></label>
+      <div class="saverow"><button class="btn" type="submit">Save county</button><p class="msg" id="ccmsg"></p></div></form>
+      ${r.at ? `<p class="note">Last updated ${fmtDate(r.at)}.</p>` : ''}`;
+  $('#ccback').onclick = () => { ccSel = null; ccRender(); ccMap.flyToBounds([[MT.y0,MT.x0],[MT.y1,MT.x1]], {animate:!reduce, duration:.7}); };
+  $('#ccf').onsubmit = saveCC;
+}
+async function saveCC(e){
+  e.preventDefault(); const fd = new FormData(e.target), c = ccSel, msg = $('#ccmsg'), btn = e.target.querySelector('[type=submit]');
+  const row = {county:c, notes:String(fd.get('no')||'').trim(), updated_at:new Date().toISOString(), updated_by: session?.user?.id || null};
+  CCSEATS.forEach(([s]) => { row[s+'_status'] = fd.get(s) || 'unk'; row[s+'_name'] = String(fd.get(s+'n')||'').trim(); });
+  msg.textContent = 'Saving…'; btn.disabled = true;
+  const {error} = await sb.from('cc_seats').upsert(row); btn.disabled = false;
+  if (error){ msg.textContent = 'Could not save: ' + error.message; return; }
+  cc[c] = ccFromRow(row); ccRender(); const m = $('#ccmsg'); if (m) m.textContent = 'Saved ✓';
+}
+
 /* ---------- hero outline ---------- */
 function heroShape(){
   const D = lines?.county; if (!D) return; let x0=180,x1=-180,y0=90,y1=-90;
@@ -507,7 +641,7 @@ function heroShape(){
 }
 
 /* ---------- start ---------- */
-renderAll();
+applyRole(); renderAll();
 function renderAll(){ renderKpis(); renderTable(); paint(); renderSide(); }
 Promise.all([fetch('data/precincts.json').then(r => r.json()), fetch('data/lines.json').then(r => r.json()).catch(() => null)])
   .then(([fc, ln]) => { lines = ln; useData(fc); heroShape(); loadSeats(); })
@@ -519,8 +653,11 @@ if (sb){
     const r = pl.new; if (!isEditor || !r || !r.precinct) return; recs[r.precinct] = fromRow(r); renderKpis(); renderTable(); paint();
     if (sel === r.precinct && !document.activeElement?.closest?.('#side form')) renderSide();
   }).subscribe();
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) loadSeats(); });
+  sb.channel('cc-live').on('postgres_changes', {event:'*', schema:'public', table:'cc_seats'}, pl => {
+    const r = pl.new; if (!isEditor || !r || !r.county) return; cc[r.county] = ccFromRow(r); if (ccMap) ccRender();
+  }).subscribe();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden){ loadSeats(); if (isEditor) loadCC(); } });
   setInterval(() => { if (!document.hidden && !isEditor) loadSeats(); }, 60000);
 }
-addEventListener('resize', () => map.invalidateSize());
+addEventListener('resize', () => { map.invalidateSize(); if (ccMap) ccMap.invalidateSize(); });
 })();

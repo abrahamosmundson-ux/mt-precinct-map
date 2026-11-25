@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Montana Precinct Map · Where YRs can serve</title>
 <meta name="description" content="Find your Montana voting precinct and see which precinct committee seats are open for Young Republicans.">
 <meta property="og:title" content="Where Montana YRs can serve">
@@ -13,28 +13,31 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
-<link rel="stylesheet" href="style.css?v=1795532609">
+<link rel="stylesheet" href="style.css?v=1795571748">
 </head>
 <body>
 <nav class="topnav"><div class="in">
-  <a class="mark" href="#top"><b>YR</b><span>Montana Precinct Map</span></a>
-  <div class="nav"><a href="#mapsec">Map</a><a href="#find">Find your precinct</a><a href="#counties">Counties</a><a href="#why">Why it matters</a></div>
-  <button class="btn ghost sm" id="loginBtn">Chair login</button>
+  <a class="mark" href="#map"><b>YR</b><span>Montana Precinct Map</span></a>
+  <div class="tabbar" id="tabs" role="tablist" aria-label="Sections"></div>
+  <button class="btn ghost sm" id="reqBtn" hidden>Requests <span class="badge" id="reqBadge" hidden></span></button>
+  <button class="btn ghost sm" id="loginBtn">Admin login</button>
 </div></nav>
+<div class="banner" id="banner" hidden></div>
 
-<header class="hero band" id="top">
+<!-- ===== Precinct map (public: Map, admin: Precinct map) ===== -->
+<header class="hero band" id="hero" data-pub="map" data-ed="map">
   <svg class="mt" id="mtShape" viewBox="0 0 100 50" aria-hidden="true"></svg>
   <div class="in">
-    <div>
+    <div class="pubonly">
       <h1>Where Montana YRs can serve</h1>
-      <p>Every Montana precinct elects a committeeman and a committeewoman. This map shows which seats are open, which are filled, and where Young Republicans already serve. Find your precinct and raise your hand for an open seat.</p>
+      <p>Every Montana precinct elects a committeeman and a committeewoman. See which seats are open, which are filled, and where Young Republicans already serve.</p>
     </div>
     <div class="kpis" id="kpis"></div>
     <div class="prog" id="prog"></div>
   </div>
 </header>
 
-<main class="wrap" id="mapsec">
+<main class="wrap" id="mapsec" data-pub="map" data-ed="map">
   <section aria-label="Precinct map">
     <div class="tools">
       <div class="search">
@@ -49,7 +52,7 @@
       <span class="seglab">Lines</span>
       <div class="seg" id="lineSeg" role="group" aria-label="Boundary lines"><button data-l="none">None</button><button data-l="county">Counties</button><button data-l="house">House</button><button data-l="senate">Senate</button></div>
       <select id="county" aria-label="County"><option value="">All counties</option></select>
-      <select id="show" aria-label="Show"><option value="">All precincts</option><option value="yr">Precincts with a YR</option></select>
+      <select id="show" aria-label="Show"><option value="">All precincts</option></select>
     </div>
     <div class="mapbox" id="mapbox">
       <div id="map" aria-label="Map of Montana voting precincts"></div>
@@ -62,7 +65,17 @@
   <aside class="side" id="side" aria-live="polite"></aside>
 </main>
 
-<section class="band sec" id="find">
+<!-- ===== County scoreboard (public: Counties tab, admin: under the precinct map) ===== -->
+<section class="band sec alt" id="counties" data-pub="counties" data-ed="map">
+  <div class="in">
+    <h2>County scoreboard</h2>
+    <p class="lede" id="ctabLede">YRs serving and open seats in each county. Tap a county to see it on the map.</p>
+    <div class="scroll"><table id="ctab"><thead></thead><tbody></tbody></table></div>
+  </div>
+</section>
+
+<!-- ===== Get involved (public only) ===== -->
+<section class="band sec" id="find" data-pub="involved">
   <div class="in">
     <h2>Find your precinct</h2>
     <p class="lede">Your precinct is set by where you live and are registered to vote.</p>
@@ -73,24 +86,34 @@
     </div>
   </div>
 </section>
-
-<section class="band sec alt" id="counties">
-  <div class="in">
-    <h2>County scoreboard</h2>
-    <p class="lede" id="ctabLede">Young Republicans serving in each county. Tap a county to zoom the map to it.</p>
-    <div class="scroll"><table id="ctab"><thead></thead><tbody></tbody></table></div>
-  </div>
-</section>
-
-<section class="band sec" id="why">
+<section class="band sec alt" id="why" data-pub="involved">
   <div class="in">
     <h2>Why precinct seats matter</h2>
     <p class="lede">Precinct committee members are the base of the party. Together they make up the county central committee, which elects the county party's officers and sends members to the state party.</p>
     <div class="cards">
       <div class="cardx"><h3>Two seats per precinct</h3><p>Each precinct elects one committeeman and one committeewoman in the June primary in even-numbered years.</p></div>
       <div class="cardx"><h3>Seats can open up any time</h3><p>Seats left empty after the primary can be filled by appointment. Your county chair can explain how it works in your county.</p></div>
-      <div class="cardx"><h3>Raise your hand</h3><p>Find your precinct, and if a seat is open, tap "I want to serve here." Your county and chapter leaders will follow up.</p></div>
+      <div class="cardx"><h3>Raise your hand</h3><p>Find your precinct on the map, and if a seat is open, tap "I want to serve here." Your county and chapter leaders will follow up.</p><button class="btn" data-go="map">Open the map</button></div>
     </div>
+  </div>
+</section>
+
+<!-- ===== CC map (admin only) ===== -->
+<main class="wrap" id="ccsec" data-ed="cc">
+  <section aria-label="Central committee map">
+    <div class="ccbar" id="ccbar"></div>
+    <div class="mapbox" id="ccbox">
+      <div id="ccmap" aria-label="Map of Montana counties and their central committee votes"></div>
+      <div class="legend" id="cclegend"></div>
+    </div>
+  </section>
+  <aside class="side" id="ccside" aria-live="polite"></aside>
+</main>
+<section class="band sec alt" id="ccvotes" data-ed="cc">
+  <div class="in">
+    <h2>County votes</h2>
+    <p class="lede">Each county casts four votes for the state party board: County Chair, Finance Chair, State Committeeman and State Committeewoman. Tap a county to edit it.</p>
+    <div class="scroll"><table id="cctab"><thead></thead><tbody></tbody></table></div>
   </div>
 </section>
 
@@ -99,16 +122,16 @@
 <dialog id="login">
   <div class="tabs" role="tablist"><button type="button" data-mode="in" aria-selected="true">Sign in</button><button type="button" data-mode="req" aria-selected="false">Request access</button></div>
   <form id="loginForm">
-    <h2>Chair login</h2>
-    <p class="meta">For county chairs and chapter leaders who keep the seat map up to date.</p>
+    <h2>Admin login</h2>
+    <p class="meta">For county chairs and chapter leaders who keep the maps up to date.</p>
     <label class="field">Email<input type="email" name="email" required autocomplete="username"></label>
     <label class="field">Password<input type="password" name="password" required autocomplete="current-password"></label>
     <p class="msg" id="loginMsg"></p>
     <div class="row"><button class="btn" type="submit">Sign in</button><button class="btn ghost" type="button" data-close>Cancel</button></div>
   </form>
   <form id="reqForm" hidden>
-    <h2>Request editor access</h2>
-    <p class="meta">Create an account. The map owner approves each editor before they can change seats.</p>
+    <h2>Request admin access</h2>
+    <p class="meta">Create an account. The map owner approves each person before they can make changes.</p>
     <label class="field">Full name<input type="text" name="name" required maxlength="80" autocomplete="name"></label>
     <label class="field">County<select name="county" id="reqCounty" required style="width:100%"><option value="">Choose your county</option></select></label>
     <label class="field">Your role<select name="role" required style="width:100%"><option value="">Choose one</option><option>County party chair</option><option>County party officer</option><option>YR chapter leader</option><option>Precinct committee member</option><option>Other</option></select></label>
@@ -120,9 +143,14 @@
   </form>
 </dialog>
 
-<script src="config.js?v=1795532609"></script>
+<dialog id="ownerDlg">
+  <div id="ownerBody"></div>
+  <div class="row"><button class="btn ghost" type="button" data-close>Close</button></div>
+</dialog>
+
+<script src="config.js?v=1795571748"></script>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="app.js?v=1795532609"></script>
+<script src="app.js?v=1795571748"></script>
 </body>
 </html>
